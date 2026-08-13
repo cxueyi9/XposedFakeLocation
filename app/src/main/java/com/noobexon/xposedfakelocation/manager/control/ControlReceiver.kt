@@ -13,11 +13,9 @@ class ControlReceiver : BroadcastReceiver() {
 
     companion object {
         private const val TAG = "ControlReceiver"
-
         const val ACTION_START = "com.noobexon.xposedfakelocation.action.START"
         const val ACTION_STOP = "com.noobexon.xposedfakelocation.action.STOP"
         const val ACTION_SET_LOCATION = "com.noobexon.xposedfakelocation.action.SET_LOCATION"
-
         const val EXTRA_LATITUDE = "latitude"
         const val EXTRA_LONGITUDE = "longitude"
         const val EXTRA_ACCURACY = "accuracy"
@@ -81,17 +79,50 @@ class ControlReceiver : BroadcastReceiver() {
         }
     }
 
+    /**
+     * 解析坐标，支持 Double、Float 和 String 三种类型
+     * 这样无论使用 --ed、--ef 还是 --es 都能正确读取
+     */
     private fun parseCoordinates(intent: Intent): Pair<Double, Double>? {
-        val lat = intent.getDoubleExtra(EXTRA_LATITUDE, Double.NaN)
-        val lon = intent.getDoubleExtra(EXTRA_LONGITUDE, Double.NaN)
+        // 1. 优先尝试 Double 类型（对应 --ed）
+        var lat = intent.getDoubleExtra(EXTRA_LATITUDE, Double.NaN)
+        var lon = intent.getDoubleExtra(EXTRA_LONGITUDE, Double.NaN)
+
+        // 2. 如果 Double 读取失败，尝试 Float 类型（对应 --ef）
+        if (!lat.isFinite() || !lon.isFinite()) {
+            val latF = intent.getFloatExtra(EXTRA_LATITUDE, Float.NaN)
+            val lonF = intent.getFloatExtra(EXTRA_LONGITUDE, Float.NaN)
+            if (latF.isFinite() && lonF.isFinite()) {
+                lat = latF.toDouble()
+                lon = lonF.toDouble()
+            }
+        }
+
+        // 3. 如果还是失败，尝试 String 类型（对应 --es，备选方案）
+        if (!lat.isFinite() || !lon.isFinite()) {
+            intent.getStringExtra(EXTRA_LATITUDE)?.let { latStr ->
+                intent.getStringExtra(EXTRA_LONGITUDE)?.let { lonStr ->
+                    try {
+                        lat = latStr.toDouble()
+                        lon = lonStr.toDouble()
+                    } catch (_: NumberFormatException) {
+                        // 解析失败，保持 NaN
+                    }
+                }
+            }
+        }
+
+        // 4. 验证坐标是否有效
         if (!lat.isFinite() || !lon.isFinite()) {
             Log.w(TAG, "Rejecting non-finite latitude/longitude")
             return null
         }
+
         if (lat < LAT_MIN || lat > LAT_MAX || lon < LON_MIN || lon > LON_MAX) {
             Log.w(TAG, "Rejecting out-of-range coordinates lat=$lat lon=$lon")
             return null
         }
+
         return lat to lon
     }
 }
