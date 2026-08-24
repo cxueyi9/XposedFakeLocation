@@ -18,6 +18,8 @@ import io.github.libxposed.api.XposedInterface.Chain
 import io.github.libxposed.api.XposedInterface.Hooker
 import java.lang.reflect.Field
 import java.lang.reflect.Method
+import android.os.UserHandle
+import android.os.Binder
 
 class SystemServicesHooks(
     private val module: XposedInterface,
@@ -193,7 +195,7 @@ class SystemServicesHooks(
 
     private fun interceptCallLocationChanged(chain: Chain): Any? {
         if (PreferencesUtil.getIsPlaying() != true) return chain.proceed()
-        val userId = Binder.getCallingUid().let { UserHandle.getUserId(it) }
+       val userId = Binder.getCallingUid().let { UserHandle.getUserId(it) }
         if (collectPackageNames(chain.thisObject).none { PreferencesUtil.isPackageTargeted(it, userId) }) return chain.proceed()
 
         val args = chain.args
@@ -209,12 +211,12 @@ class SystemServicesHooks(
 
     private fun shouldSpoofArgs(args: List<Any?>?): Boolean {
         if (PreferencesUtil.getIsPlaying() != true) return false
-        val uid = Binder.getCallingUid()
-        val userId = UserHandle.getUserId(uid)
+val uid = Binder.getCallingUid()
+val userId = UserHandle.getUserId(uid)
         return args?.asSequence()
-            ?.flatMap { collectPackageNames(it).asSequence() }
-            ?.distinct()
-            ?.any { PreferencesUtil.isPackageTargeted(it, userId) } == true
+    ?.flatMap { arg: Any? -> collectPackageNames(arg).asSequence() }
+    ?.distinct()
+    ?.any { pkg: String -> PreferencesUtil.isPackageTargeted(pkg, userId) }
     }
 
     private fun shouldSpoofWifiArgs(args: List<Any?>?): Boolean {

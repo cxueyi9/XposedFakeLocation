@@ -9,6 +9,8 @@ import android.os.UserHandle
 import android.util.Log
 import com.noobexon.xposedfakelocation.xposed.utils.PreferencesUtil
 import io.github.libxposed.api.XposedInterface
+import android.os.UserHandle
+import android.os.Process
 
 class AppWifiHooks(
     private val module: XposedInterface,

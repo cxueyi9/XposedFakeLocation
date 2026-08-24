@@ -9,6 +9,8 @@ import com.noobexon.xposedfakelocation.xposed.utils.PreferencesUtil
 import io.github.libxposed.api.XposedInterface
 import io.github.libxposed.api.XposedInterface.Hooker
 import java.lang.reflect.Method
+import android.os.UserHandle
+import android.os.Binder
 
 class PhoneServicesHooks(
     private val module: XposedInterface,
@@ -102,14 +104,14 @@ class PhoneServicesHooks(
         return null
     }
 
-    private fun shouldSpoofArgs(args: List<Any?>?): Boolean {
-        if (PreferencesUtil.getIsPlaying() != true) return false
-        val uid = Binder.getCallingUid()
-        val userId = UserHandle.getUserId(uid)
-        return args?.asSequence()
-            ?.mapNotNull(::extractPackageName)
-            ?.any { PreferencesUtil.isPackageTargeted(it, userId) } == true
-    }
+private fun shouldSpoofArgs(args: List<Any?>?): Boolean {
+    if (PreferencesUtil.getIsPlaying() != true) return false
+    val uid = Binder.getCallingUid()
+    val userId = UserHandle.getUserId(uid)
+    return args?.asSequence()
+        ?.mapNotNull(::extractPackageName)
+        ?.any { PreferencesUtil.isPackageTargeted(it, userId) } == true
+}
 
     private fun extractPackageName(value: Any?): String? {
         if (value is String) return value.takeIf { "." in it && !it.startsWith("android.") }
