@@ -105,7 +105,7 @@ class PhoneServicesHooks(
     private fun shouldSpoofArgs(args: List<Any?>?): Boolean {
         if (PreferencesUtil.getIsPlaying() != true) return false
         val uid = Binder.getCallingUid()
-        val userId = android.os.UserHandle.getUserId(uid)
+        val userId = android.os.UserHandle.of(uid).identifier
         return args?.asSequence()
             ?.mapNotNull(::extractPackageName)
             ?.any { PreferencesUtil.isPackageTargeted(it, userId) } == true
