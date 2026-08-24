@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.lang.reflect.Method
+import android.util.Log
 
 @Immutable
 data class TargetAppItem(
@@ -270,35 +271,42 @@ class TargetAppsViewModel(application: Application) : AndroidViewModel(applicati
 
 private suspend fun fetchInstalledApps(): List<TargetAppItem> = withContext(Dispatchers.IO) {
     // 获取所有用户
-    val users = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-        try {
+    val users = try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             val method = UserManager::class.java.getMethod("getUsers")
             @Suppress("UNCHECKED_CAST")
             (method.invoke(userManager) as? List<UserHandle>) ?: emptyList()
-        } catch (e: Exception) {
+        } else {
             emptyList()
         }
+    } catch (e: Exception) {
+        Log.e("TargetAppsVM", "Failed to get users: ${e.message}")
+        // 回退到当前用户
+        listOf(android.os.Process.myUserHandle())
+    }
+
+    val finalUsers = if (users.isEmpty()) {
+        listOf(android.os.Process.myUserHandle())
     } else {
-        emptyList()
+        users
     }
 
     val result = mutableListOf<TargetAppItem>()
-    for (user in users) {
-        // 通过反射获取 UserHandle 的 id 字段
+    for (user in finalUsers) {
         val userId = try {
             val field = UserHandle::class.java.getDeclaredField("id")
             field.isAccessible = true
             field.getInt(user)
         } catch (e: Exception) {
-            // 如果反射失败，使用默认用户 0
+            Log.e("TargetAppsVM", "Failed to get user id: ${e.message}")
             0
         }
+
         val apps = getInstalledApplicationsForUser(userId)
         for (info in apps) {
-            val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-                .setPackage(info.packageName)
-            val resolveInfo = packageManager.resolveActivity(intent, 0)
-            if (resolveInfo != null && info.packageName != MANAGER_APP_PACKAGE_NAME) {
+            // 使用 getLaunchIntentForPackage 检查是否有启动器 Activity
+            val launchIntent = packageManager.getLaunchIntentForPackage(info.packageName)
+            if (launchIntent != null && info.packageName != MANAGER_APP_PACKAGE_NAME) {
                 val label = info.loadLabel(packageManager).toString()
                 val isSystem = (info.flags and ApplicationInfo.FLAG_SYSTEM) != 0
                 result.add(TargetAppItem(
@@ -314,19 +322,21 @@ private suspend fun fetchInstalledApps(): List<TargetAppItem> = withContext(Disp
         .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.label })
 }
 
-    private fun getInstalledApplicationsForUser(userId: Int): List<ApplicationInfo> {
-        return try {
-            val method: Method = PackageManager::class.java.getDeclaredMethod(
-                "getInstalledApplicationsAsUser",
-                Int::class.javaPrimitiveType,
-                Int::class.javaPrimitiveType
-            )
-            @Suppress("UNCHECKED_CAST")
-            method.invoke(packageManager, PackageManager.GET_META_DATA, userId) as List<ApplicationInfo>
-        } catch (e: Exception) {
-            packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
-        }
+private fun getInstalledApplicationsForUser(userId: Int): List<ApplicationInfo> {
+    return try {
+        val method = PackageManager::class.java.getDeclaredMethod(
+            "getInstalledApplicationsAsUser",
+            Int::class.javaPrimitiveType,
+            Int::class.javaPrimitiveType
+        )
+        @Suppress("UNCHECKED_CAST")
+        method.invoke(packageManager, PackageManager.GET_META_DATA, userId) as List<ApplicationInfo>
+    } catch (e: Exception) {
+        Log.e("TargetAppsVM", "Failed to get apps for user $userId: ${e.message}")
+        // 回退到当前用户
+        packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
     }
+}
 
     private fun loadInstalledApps() {
         viewModelScope.launch {
