@@ -1,4 +1,4 @@
-// PreferencesRepository.kt
+// PrefrencesRepository.kt
 package com.noobexon.xposedfakelocation.data.repository
 
 import android.content.Context
@@ -323,7 +323,9 @@ class PreferencesRepository(context: Context) {
     }
     // endregion
 
-    // region Target Apps (remote) - 修改为存储 "包名|用户ID" 集合
+    // ===================== 关键修改：Target Apps =====================
+    // region Target Apps (remote) - 存储格式为 "包名|用户ID" 的集合
+
     fun getTargetAppsFlow(): Flow<Set<String>> =
         remoteFlow(KEY_TARGET_APPS, emptySet()) { parseTargetApps(it.getString(KEY_TARGET_APPS, null)) }
 
