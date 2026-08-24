@@ -46,6 +46,8 @@ import com.noobexon.xposedfakelocation.data.model.LastClickedLocation
 import com.noobexon.xposedfakelocation.data.normalizeWifiSsid
 import com.noobexon.xposedfakelocation.xposed.utils.PreferencesUtil.gson
 import com.noobexon.xposedfakelocation.xposed.utils.PreferencesUtil.init
+import com.noobexon.xposedfakelocation.data.KEY_ENABLE_WIFI_IDENTITY
+import com.noobexon.xposedfakelocation.data.DEFAULT_ENABLE_WIFI_IDENTITY
 
 /**
  * Hook-side accessor for the LSPosed remote [SharedPreferences] written by the manager app.
