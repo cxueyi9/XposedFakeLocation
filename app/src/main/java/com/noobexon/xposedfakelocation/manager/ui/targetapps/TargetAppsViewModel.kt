@@ -268,39 +268,39 @@ class TargetAppsViewModel(application: Application) : AndroidViewModel(applicati
         )
     }
 
-    private suspend fun fetchInstalledApps(): List<TargetAppItem> = withContext(Dispatchers.IO) {
-        // 获取所有用户
-        val users = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            @Suppress("DEPRECATION")
-            val result = userManager.users
-            result ?: emptyList()
-        } else {
-            emptyList()
-        }
+private suspend fun fetchInstalledApps(): List<TargetAppItem> = withContext(Dispatchers.IO) {
+    // 获取所有用户
+    val users = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+        // 使用 getUsers() 替代 users 属性，并处理空值
+        @Suppress("DEPRECATION")
+        userManager.getUsers() ?: emptyList()
+    } else {
+        emptyList()
+    }
 
-        val result = mutableListOf<TargetAppItem>()
-        for (user in users) {
-            val userId = user.id
-            val apps = getInstalledApplicationsForUser(userId)
-            for (info in apps) {
-                val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-                    .setPackage(info.packageName)
-                val resolveInfo = packageManager.resolveActivity(intent, 0)
-                if (resolveInfo != null && info.packageName != MANAGER_APP_PACKAGE_NAME) {
-                    val label = info.loadLabel(packageManager).toString()
-                    val isSystem = (info.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-                    result.add(TargetAppItem(
-                        label = label,
-                        packageName = info.packageName,
-                        userId = userId,
-                        isSystemApp = isSystem
-                    ))
-                }
+    val result = mutableListOf<TargetAppItem>()
+    for (user in users) {
+        val userId = user.id
+        val apps = getInstalledApplicationsForUser(userId)
+        for (info in apps) {
+            val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+                .setPackage(info.packageName)
+            val resolveInfo = packageManager.resolveActivity(intent, 0)
+            if (resolveInfo != null && info.packageName != MANAGER_APP_PACKAGE_NAME) {
+                val label = info.loadLabel(packageManager).toString()
+                val isSystem = (info.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+                result.add(TargetAppItem(
+                    label = label,
+                    packageName = info.packageName,
+                    userId = userId,
+                    isSystemApp = isSystem
+                ))
             }
         }
-        result.distinctBy { "${it.packageName}|${it.userId}" }
-            .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.label })
     }
+    result.distinctBy { "${it.packageName}|${it.userId}" }
+        .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.label })
+}
 
     private fun getInstalledApplicationsForUser(userId: Int): List<ApplicationInfo> {
         return try {
