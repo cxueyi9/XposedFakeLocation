@@ -9,6 +9,8 @@ import com.noobexon.xposedfakelocation.xposed.utils.PreferencesUtil
 import io.github.libxposed.api.XposedInterface
 import io.github.libxposed.api.XposedInterface.Hooker
 import java.lang.reflect.Method
+import android.os.UserHandle
+import android.os.Binder
 
 class PhoneServicesHooks(
     private val module: XposedInterface,
@@ -105,7 +107,7 @@ class PhoneServicesHooks(
     private fun shouldSpoofArgs(args: List<Any?>?): Boolean {
         if (PreferencesUtil.getIsPlaying() != true) return false
         val uid = Binder.getCallingUid()
-        val userId = UserHandle.getUserId(uid)
+        val userId = android.os.UserHandle.getUserId(uid)
         return args?.asSequence()
             ?.mapNotNull(::extractPackageName)
             ?.any { PreferencesUtil.isPackageTargeted(it, userId) } == true
