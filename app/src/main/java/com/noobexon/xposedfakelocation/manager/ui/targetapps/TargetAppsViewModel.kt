@@ -234,7 +234,6 @@ class TargetAppsViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     private suspend fun refreshScope(sortApps: Boolean = false) {
-        // 直接从Preferences读取
         val storedIdentifiers = preferencesRepository.getTargetApps()
         _uiState.update { state ->
             val nextApps = if (sortApps && state.apps.isNotEmpty()) state.apps.sortedBySelection(storedIdentifiers)
@@ -283,10 +282,13 @@ class TargetAppsViewModel(application: Application) : AndroidViewModel(applicati
      * 跨用户获取所有已安装的启动器应用
      */
     private suspend fun fetchInstalledApps(): List<TargetAppItem> = withContext(Dispatchers.IO) {
-        val users = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            userManager.users ?: listOf(UserHandle.CURRENT)
+        // 获取所有用户（API 24+ 支持）
+        val users = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            // UserManager.getUsers() 返回 List<UserHandle>，可能为null
+            userManager.getUsers() ?: emptyList()
         } else {
-            listOf(UserHandle.CURRENT)
+            // 对于旧版本，只能获取当前用户（但我们的 minSdk=29 不会执行到这里）
+            emptyList()
         }
 
         val result = mutableListOf<TargetAppItem>()
