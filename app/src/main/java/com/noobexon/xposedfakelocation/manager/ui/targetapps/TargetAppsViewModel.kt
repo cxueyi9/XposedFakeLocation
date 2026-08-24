@@ -98,22 +98,37 @@ class TargetAppsViewModel(application: Application) : AndroidViewModel(applicati
         _uiState.update { it.copy(showSystemApps = show).recompute() }
     }
 
-    fun toggleApp(item: TargetAppItem) {
-        val identifier = item.identifier()
-        if (_uiState.value.pendingIdentifiers.contains(identifier)) return
+fun toggleApp(item: TargetAppItem) {
+    val identifier = item.identifier()
+    if (_uiState.value.pendingIdentifiers.contains(identifier)) return
 
-        val service = App.service
-        if (service == null) {
-            _events.trySend(TargetAppsEvent.ModuleNotActive)
-            return
-        }
-
-        if (_uiState.value.selectedIdentifiers.contains(identifier)) {
-            removeFromScope(service, item)
-        } else {
-            addToScope(service, item)
-        }
+    val service = App.service
+    if (service == null) {
+        _events.trySend(TargetAppsEvent.ModuleNotActive)
+        return
     }
+
+    val isCurrentlySelected = _uiState.value.selectedIdentifiers.contains(identifier)
+    if (isCurrentlySelected) {
+        // 取消选中：直接从 UI 和 Preferences 移除，然后调用 removeScope
+        removeFromScope(service, item)
+    } else {
+        // 选中：先乐观更新 UI 和 Preferences，再请求 addScope
+        // 立即更新 UI 状态
+        _uiState.update { state ->
+            state.copy(
+                selectedIdentifiers = state.selectedIdentifiers + identifier,
+                pendingIdentifiers = state.pendingIdentifiers + identifier
+            ).recompute()
+        }
+        // 保存到 Preferences
+        viewModelScope.launch {
+            preferencesRepository.saveTargetApps(_uiState.value.selectedIdentifiers)
+        }
+
+        addToScope(service, item, identifier)
+    }
+}
 
     fun relaunchApp(item: TargetAppItem) {
         val identifier = item.identifier()
@@ -162,47 +177,85 @@ class TargetAppsViewModel(application: Application) : AndroidViewModel(applicati
         false
     }
 
-    private fun addToScope(service: XposedService, item: TargetAppItem) {
-        val identifier = item.identifier()
-        setPending(identifier, true)
-
-        val callback = object : XposedService.OnScopeEventListener {
-            override fun onScopeRequestApproved(approved: List<String>) {
-                viewModelScope.launch {
-                    setPending(identifier, false)
-                    refreshScope()
+    private fun addToScope(service: XposedService, item: TargetAppItem, identifier: String) {
+    val callback = object : XposedService.OnScopeEventListener {
+        override fun onScopeRequestApproved(approved: List<String>) {
+            viewModelScope.launch {
+                // 请求成功，清除 pending 状态
+                _uiState.update { state ->
+                    state.copy(pendingIdentifiers = state.pendingIdentifiers - identifier)
+                        .recompute()
                 }
-            }
-
-            override fun onScopeRequestFailed(message: String) {
-                viewModelScope.launch {
-                    setPending(identifier, false)
-                    _events.trySend(TargetAppsEvent.ScopeRequestFailed(message))
-                }
+                // 重新从 Preferences 读取并同步（确保一致）
+                refreshScope()
             }
         }
 
-        viewModelScope.launch {
-            try {
-                withContext(Dispatchers.IO) { service.requestScope(listOf(item.packageName), callback) }
-            } catch (e: XposedService.ServiceException) {
-                setPending(identifier, false)
-                _events.trySend(TargetAppsEvent.ScopeRequestFailed(e.message ?: e.toString()))
+        override fun onScopeRequestFailed(message: String) {
+            viewModelScope.launch {
+                // 请求失败，回滚：从 selected 和 pending 中移除
+                _uiState.update { state ->
+                    state.copy(
+                        selectedIdentifiers = state.selectedIdentifiers - identifier,
+                        pendingIdentifiers = state.pendingIdentifiers - identifier
+                    ).recompute()
+                }
+                // 同时从 Preferences 移除
+                preferencesRepository.saveTargetApps(_uiState.value.selectedIdentifiers)
+                _events.trySend(TargetAppsEvent.ScopeRequestFailed(message))
             }
         }
     }
+
+    viewModelScope.launch {
+        try {
+            withContext(Dispatchers.IO) { service.requestScope(listOf(item.packageName), callback) }
+        } catch (e: XposedService.ServiceException) {
+            // 同步异常，回滚
+            _uiState.update { state ->
+                state.copy(
+                    selectedIdentifiers = state.selectedIdentifiers - identifier,
+                    pendingIdentifiers = state.pendingIdentifiers - identifier
+                ).recompute()
+            }
+            preferencesRepository.saveTargetApps(_uiState.value.selectedIdentifiers)
+            _events.trySend(TargetAppsEvent.ScopeRequestFailed(e.message ?: e.toString()))
+        }
+    }
+}
 
     private fun removeFromScope(service: XposedService, item: TargetAppItem) {
-        val identifier = item.identifier()
-        viewModelScope.launch {
-            try {
-                withContext(Dispatchers.IO) { service.removeScope(listOf(item.packageName)) }
-            } catch (e: XposedService.ServiceException) {
-                _events.trySend(TargetAppsEvent.ScopeRequestFailed(e.message ?: e.toString()))
+    val identifier = item.identifier()
+    // 立即从 UI 和 Preferences 移除
+    _uiState.update { state ->
+        state.copy(
+            selectedIdentifiers = state.selectedIdentifiers - identifier,
+            pendingIdentifiers = state.pendingIdentifiers + identifier
+        ).recompute()
+    }
+    viewModelScope.launch {
+        preferencesRepository.saveTargetApps(_uiState.value.selectedIdentifiers)
+        try {
+            withContext(Dispatchers.IO) { service.removeScope(listOf(item.packageName)) }
+            // 移除成功，清除 pending
+            _uiState.update { state ->
+                state.copy(pendingIdentifiers = state.pendingIdentifiers - identifier)
+                    .recompute()
             }
             refreshScope()
+        } catch (e: XposedService.ServiceException) {
+            // 移除失败，回滚，重新添加
+            _uiState.update { state ->
+                state.copy(
+                    selectedIdentifiers = state.selectedIdentifiers + identifier,
+                    pendingIdentifiers = state.pendingIdentifiers - identifier
+                ).recompute()
+            }
+            preferencesRepository.saveTargetApps(_uiState.value.selectedIdentifiers)
+            _events.trySend(TargetAppsEvent.ScopeRequestFailed(e.message ?: e.toString()))
         }
     }
+}
 
     private fun observeService() {
         viewModelScope.launch {
