@@ -83,18 +83,6 @@ import java.util.Locale
 
 /**
  * Single-source-of-truth preferences store.
- *
- * Each setting lives in exactly one place:
- *  - Hook-shared settings (read by the Xposed module) live in the LSPosed remote
- *    preferences exposed through [App.service]. They are only available while the
- *    XposedService is bound; when it isn't, reads fall back to defaults and writes
- *    are dropped (the UI is gated behind a bound service anyway).
- *  - Manager-only settings (language, favorites, broadcast control) live in a local
- *    [SharedPreferences] file so they are always available, including at startup and
- *    when the module is disabled.
- *
- * Doubles are encoded as raw long bits because [SharedPreferences] has no putDouble,
- * keeping read/write symmetry with the hook-side PreferencesUtil.
  */
 class PreferencesRepository(context: Context) {
     private val tag = "PreferencesRepository"
@@ -335,18 +323,21 @@ class PreferencesRepository(context: Context) {
     }
     // endregion
 
-    // region Target Apps (remote)
+    // region Target Apps (remote) - 修改为存储 "包名|用户ID" 集合
     fun getTargetAppsFlow(): Flow<Set<String>> =
         remoteFlow(KEY_TARGET_APPS, emptySet()) { parseTargetApps(it.getString(KEY_TARGET_APPS, null)) }
 
-    suspend fun saveTargetApps(packageNames: Set<String>) {
-        val normalized = packageNames
-            .filter { it.isNotBlank() }
+    suspend fun saveTargetApps(identifiers: Set<String>) {
+        val normalized = identifiers
+            .filter { it.isNotBlank() && it.contains('|') }
             .distinct()
             .sorted()
         val json = gson.toJson(normalized)
         editRemote { putString(KEY_TARGET_APPS, json) }
     }
+
+    fun getTargetApps(): Set<String> =
+        parseTargetApps(remotePrefs()?.getString(KEY_TARGET_APPS, null))
 
     private fun parseTargetApps(json: String?): Set<String> {
         if (json.isNullOrBlank()) return emptySet()
@@ -428,5 +419,4 @@ class PreferencesRepository(context: Context) {
     fun getThemeOptionFlow(): Flow<String> = localFlow(KEY_THEME_OPTION) { it.getString(KEY_THEME_OPTION, DEFAULT_THEME_OPTION) ?: DEFAULT_THEME_OPTION }
     suspend fun saveThemeOption(themeTag: String) = editLocal { putString(KEY_THEME_OPTION, themeTag) }
     // endregion
-
 }
