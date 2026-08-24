@@ -284,7 +284,7 @@ private suspend fun fetchInstalledApps(): List<TargetAppItem> = withContext(Disp
 
     val result = mutableListOf<TargetAppItem>()
     for (user in users) {
-        val userId = user.identifier
+        val userId = user.getIdentifier()
         val apps = getInstalledApplicationsForUser(userId)
         for (info in apps) {
             val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
