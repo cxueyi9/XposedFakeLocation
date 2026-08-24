@@ -270,16 +270,21 @@ class TargetAppsViewModel(application: Application) : AndroidViewModel(applicati
 
 private suspend fun fetchInstalledApps(): List<TargetAppItem> = withContext(Dispatchers.IO) {
     // 获取所有用户
-val users = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-    // 使用 getUserHandles() 或 getUsers()
-    userManager.getUsers() ?: emptyList()
-} else {
-    emptyList()
-}
+    val users = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+        try {
+            @Suppress("UNCHECKED_CAST")
+            val method = UserManager::class.java.getMethod("getUsers")
+            (method.invoke(userManager) as? List<UserHandle>) ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+    } else {
+        emptyList()
+    }
 
     val result = mutableListOf<TargetAppItem>()
     for (user in users) {
-        val userId = user.id
+        val userId = user.identifier
         val apps = getInstalledApplicationsForUser(userId)
         for (info in apps) {
             val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
