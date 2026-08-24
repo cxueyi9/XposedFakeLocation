@@ -18,8 +18,6 @@ import io.github.libxposed.api.XposedInterface.Chain
 import io.github.libxposed.api.XposedInterface.Hooker
 import java.lang.reflect.Field
 import java.lang.reflect.Method
-import android.os.UserHandle
-import android.os.Binder
 
 class SystemServicesHooks(
     private val module: XposedInterface,
