@@ -9,8 +9,6 @@ import com.noobexon.xposedfakelocation.xposed.utils.PreferencesUtil
 import io.github.libxposed.api.XposedInterface
 import io.github.libxposed.api.XposedInterface.Hooker
 import java.lang.reflect.Method
-import android.os.UserHandle
-import android.os.Binder
 
 class PhoneServicesHooks(
     private val module: XposedInterface,
