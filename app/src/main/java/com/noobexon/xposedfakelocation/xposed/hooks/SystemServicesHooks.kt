@@ -18,6 +18,8 @@ import io.github.libxposed.api.XposedInterface.Chain
 import io.github.libxposed.api.XposedInterface.Hooker
 import java.lang.reflect.Field
 import java.lang.reflect.Method
+import android.os.UserHandle
+import android.os.Binder
 
 class SystemServicesHooks(
     private val module: XposedInterface,
@@ -104,7 +106,7 @@ class SystemServicesHooks(
         val passthroughRegistrations = ArrayMap<Any?, Any?>()
 
         val uid = Binder.getCallingUid()
-        val userId = UserHandle.getUserId(uid)
+        val userId = android.os.UserHandle.getUserId(uid)
 
         registrations.forEach { (key, value) ->
             originalRegistrations[key] = value
@@ -196,7 +198,7 @@ class SystemServicesHooks(
     private fun interceptCallLocationChanged(chain: Chain): Any? {
         if (PreferencesUtil.getIsPlaying() != true) return chain.proceed()
         val uid = Binder.getCallingUid()
-        val userId = UserHandle.getUserId(uid)
+        val userId = android.os.UserHandle.getUserId(uid)
         if (collectPackageNames(chain.thisObject).none { PreferencesUtil.isPackageTargeted(it, userId) }) return chain.proceed()
 
         val args = chain.args
@@ -213,7 +215,7 @@ class SystemServicesHooks(
     private fun shouldSpoofArgs(args: List<Any?>?): Boolean {
         if (PreferencesUtil.getIsPlaying() != true) return false
         val uid = Binder.getCallingUid()
-        val userId = UserHandle.getUserId(uid)
+        val userId = android.os.UserHandle.getUserId(uid)
         return args?.asSequence()
             ?.flatMap { collectPackageNames(it).asSequence() }
             ?.distinct()
@@ -223,7 +225,7 @@ class SystemServicesHooks(
     private fun shouldSpoofWifiArgs(args: List<Any?>?): Boolean {
         if (PreferencesUtil.getIsPlaying() != true) return false
         val uid = Binder.getCallingUid()
-        val userId = UserHandle.getUserId(uid)
+        val userId = android.os.UserHandle.getUserId(uid)
         val callingPackage = args?.firstOrNull() as? String ?: return false
         return PreferencesUtil.isPackageTargeted(callingPackage, userId)
     }
