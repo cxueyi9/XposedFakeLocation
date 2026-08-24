@@ -271,9 +271,8 @@ class TargetAppsViewModel(application: Application) : AndroidViewModel(applicati
 private suspend fun fetchInstalledApps(): List<TargetAppItem> = withContext(Dispatchers.IO) {
     // 获取所有用户
     val users = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-        // 使用 getUsers() 替代 users 属性，并处理空值
         @Suppress("DEPRECATION")
-        userManager.getUsers() ?: emptyList()
+        userManager.users ?: emptyList()
     } else {
         emptyList()
     }
