@@ -104,7 +104,7 @@ class SystemServicesHooks(
         val passthroughRegistrations = ArrayMap<Any?, Any?>()
 
         val uid = Binder.getCallingUid()
-        val userId = android.os.UserHandle.getUserId(uid)
+        val userId = android.os.UserHandle.of(uid).identifier
 
         registrations.forEach { (key, value) ->
             originalRegistrations[key] = value
@@ -196,7 +196,7 @@ class SystemServicesHooks(
     private fun interceptCallLocationChanged(chain: Chain): Any? {
         if (PreferencesUtil.getIsPlaying() != true) return chain.proceed()
         val uid = Binder.getCallingUid()
-        val userId = android.os.UserHandle.getUserId(uid)
+        val userId = android.os.UserHandle.of(uid).identifier
         if (collectPackageNames(chain.thisObject).none { PreferencesUtil.isPackageTargeted(it, userId) }) return chain.proceed()
 
         val args = chain.args
@@ -213,7 +213,7 @@ class SystemServicesHooks(
     private fun shouldSpoofArgs(args: List<Any?>?): Boolean {
         if (PreferencesUtil.getIsPlaying() != true) return false
         val uid = Binder.getCallingUid()
-        val userId = android.os.UserHandle.getUserId(uid)
+        val userId = android.os.UserHandle.of(uid).identifier
         return args?.asSequence()
             ?.flatMap { collectPackageNames(it).asSequence() }
             ?.distinct()
@@ -223,7 +223,7 @@ class SystemServicesHooks(
     private fun shouldSpoofWifiArgs(args: List<Any?>?): Boolean {
         if (PreferencesUtil.getIsPlaying() != true) return false
         val uid = Binder.getCallingUid()
-        val userId = android.os.UserHandle.getUserId(uid)
+        val userId = android.os.UserHandle.of(uid).identifier
         val callingPackage = args?.firstOrNull() as? String ?: return false
         return PreferencesUtil.isPackageTargeted(callingPackage, userId)
     }
