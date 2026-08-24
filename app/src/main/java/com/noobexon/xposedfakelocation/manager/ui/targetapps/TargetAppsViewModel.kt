@@ -323,35 +323,85 @@ fun toggleApp(item: TargetAppItem) {
     }
 
 private suspend fun fetchInstalledApps(): List<TargetAppItem> = withContext(Dispatchers.IO) {
-    // 获取所有已安装的应用（包括系统应用）
-    val apps = packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
-    val result = mutableListOf<TargetAppItem>()
+    // 获取所有用户
+    val userList = mutableListOf<Int>()
 
-    // 打印应用总数，便于调试
-    Log.d("TargetAppsVM", "Total installed apps: ${apps.size}")
-
-    for (info in apps) {
-        // 过滤掉自身
-        if (info.packageName == MANAGER_APP_PACKAGE_NAME) continue
-
-        val label = info.loadLabel(packageManager).toString()
-        val isSystem = (info.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-
-        // 对于所有应用（包括没有启动器的），都添加到列表
-        // 用户可以根据需要搜索
-        result.add(TargetAppItem(
-            label = label,
-            packageName = info.packageName,
-            userId = 0,  // 所有应用都在当前用户下
-            isSystemApp = isSystem
-        ))
-
-        // 打印每个应用的包名，以便调试
-        Log.d("TargetAppsVM", "Added app: $label ($info.packageName)")
+    // 方法1：通过 UserManager.getUsers() 获取
+    try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            val method = UserManager::class.java.getMethod("getUsers")
+            @Suppress("UNCHECKED_CAST")
+            val users = method.invoke(userManager) as? List<UserHandle>
+            if (users != null) {
+                for (user in users) {
+                    val id = try {
+                        val field = UserHandle::class.java.getDeclaredField("id")
+                        field.isAccessible = true
+                        field.getInt(user)
+                    } catch (e: Exception) {
+                        -1
+                    }
+                    if (id >= 0) {
+                        userList.add(id)
+                    }
+                }
+            }
+        }
+    } catch (e: Exception) {
+        Log.e("TargetAppsVM", "getUsers failed: ${e.message}")
     }
 
-    // 按标签排序
-    result.distinctBy { it.packageName }
+    // 方法2：如果 getUsers 失败，尝试遍历常见的用户 ID（0-20）
+    if (userList.isEmpty()) {
+        for (i in 0..20) {
+            // 检查该用户是否存在
+            try {
+                val method = PackageManager::class.java.getDeclaredMethod(
+                    "getInstalledApplicationsAsUser",
+                    Int::class.javaPrimitiveType,
+                    Int::class.javaPrimitiveType
+                )
+                val apps = method.invoke(packageManager, PackageManager.GET_META_DATA, i) as? List<*>
+                if (apps != null && apps.isNotEmpty()) {
+                    userList.add(i)
+                }
+            } catch (e: Exception) {
+                // 该用户不存在或无权访问，跳过
+            }
+        }
+    }
+
+    // 如果还是空的，至少包含当前用户
+    if (userList.isEmpty()) {
+        userList.add(0)
+    }
+
+    Log.d("TargetAppsVM", "Detected users: $userList")
+
+    val result = mutableListOf<TargetAppItem>()
+    for (userId in userList) {
+        val apps = getInstalledApplicationsForUser(userId)
+        for (info in apps) {
+            if (info.packageName == MANAGER_APP_PACKAGE_NAME) continue
+
+            // 检查是否有启动器 Activity
+            val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+            val resolveInfo = packageManager.resolveActivity(intent.setPackage(info.packageName), 0)
+            if (resolveInfo != null) {
+                val label = info.loadLabel(packageManager).toString()
+                val isSystem = (info.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+                result.add(TargetAppItem(
+                    label = label,
+                    packageName = info.packageName,
+                    userId = userId,
+                    isSystemApp = isSystem
+                ))
+            }
+        }
+    }
+
+    Log.d("TargetAppsVM", "Total apps: ${result.size}")
+    result.distinctBy { "${it.packageName}|${it.userId}" }
         .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.label })
 }
 
