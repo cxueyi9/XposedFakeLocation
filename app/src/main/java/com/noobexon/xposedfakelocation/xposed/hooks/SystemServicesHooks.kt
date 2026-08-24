@@ -4,7 +4,9 @@ package com.noobexon.xposedfakelocation.xposed.hooks
 import android.location.Location
 import android.location.LocationManager
 import android.net.wifi.WifiInfo
+import android.os.Binder
 import android.os.Build
+import android.os.UserHandle
 import android.telephony.CellInfo
 import android.util.ArrayMap
 import android.util.Log
@@ -104,13 +106,12 @@ class SystemServicesHooks(
         registrations.forEach { (key, value) ->
             originalRegistrations[key] = value
             val packageNames = collectPackageNames(value)
-            val spoofedPackage = packageNames.firstOrNull { shouldSpoofPackage(it) }
+            val userId = Binder.getCallingUid().let { UserHandle.getUserId(it) }
+            val spoofedPackage = packageNames.firstOrNull { PreferencesUtil.isPackageTargeted(it, userId) }
             if (spoofedPackage != null) {
-                // Deliver a fake location directly to this target registration and exclude it from
-                // the passthrough set so the real location is never pushed to it below.
                 locationsField.set(locationResult, arrayListOf(fakeLocation))
                 deliverLocationToRegistration(value, locationResult)
-                module.log(Log.INFO, tag, "Delivered spoofed provider location to $spoofedPackage.")
+                module.log(Log.INFO, tag, "Delivered spoofed provider location to $spoofedPackage (user $userId).")
             } else {
                 passthroughRegistrations[key] = value
             }
@@ -192,8 +193,8 @@ class SystemServicesHooks(
 
     private fun interceptCallLocationChanged(chain: Chain): Any? {
         if (PreferencesUtil.getIsPlaying() != true) return chain.proceed()
-        // The Receiver itself carries the caller package, so attribute by inspecting `thisObject`.
-        if (collectPackageNames(chain.thisObject).none { shouldSpoofPackage(it) }) return chain.proceed()
+        val userId = Binder.getCallingUid().let { UserHandle.getUserId(it) }
+        if (collectPackageNames(chain.thisObject).none { PreferencesUtil.isPackageTargeted(it, userId) }) return chain.proceed()
 
         val args = chain.args
         val locationArgIndex = args.indexOfFirst { it is Location }
@@ -202,22 +203,27 @@ class SystemServicesHooks(
         val original = args[locationArgIndex] as? Location
         val newArgs = args.toTypedArray()
         newArgs[locationArgIndex] = LocationUtil.createFakeLocation(original)
-        module.log(Log.INFO, tag, "Replaced Receiver.callLocationChangedLocked argument.")
+        module.log(Log.INFO, tag, "Replaced Receiver.callLocationChangedLocked argument (user $userId).")
         return chain.proceed(newArgs)
     }
 
-    // Name-based scope attribution for the system-level hooks: a package is spoofed only when it is
-    // one of the manager-selected target apps (mirrored into the remote `target_apps` preference).
-    private fun shouldSpoofPackage(packageName: String?): Boolean {
-        if (packageName.isNullOrBlank()) return false
-        return PreferencesUtil.getTargetApps().contains(packageName)
+    private fun shouldSpoofArgs(args: List<Any?>?): Boolean {
+        if (PreferencesUtil.getIsPlaying() != true) return false
+        val uid = Binder.getCallingUid()
+        val userId = UserHandle.getUserId(uid)
+        return args?.asSequence()
+            ?.flatMap { collectPackageNames(it).asSequence() }
+            ?.distinct()
+            ?.any { PreferencesUtil.isPackageTargeted(it, userId) } == true
     }
 
-    /** Attributes the Binder call to a selected target package after the shared gate passes. */
-    private fun shouldSpoofWifiArgs(
-        args: List<Any?>?,
-        targetApps: Set<String>
-    ): Boolean = WifiIdentityHookPolicy.targetsSystemWifiCaller(args, targetApps)
+    private fun shouldSpoofWifiArgs(args: List<Any?>?): Boolean {
+        if (PreferencesUtil.getIsPlaying() != true) return false
+        val uid = Binder.getCallingUid()
+        val userId = UserHandle.getUserId(uid)
+        val callingPackage = args?.firstOrNull() as? String ?: return false
+        return PreferencesUtil.isPackageTargeted(callingPackage, userId)
+    }
 
     private fun hookGnssRegistration(classLoader: ClassLoader) {
         val serviceClasses = listOfNotNull(
@@ -280,8 +286,7 @@ class SystemServicesHooks(
     private fun hookWifiServiceImpl(wifiServiceClass: Class<*>) {
         hookAll(wifiServiceClass, "getScanResults") { chain ->
             val result = chain.proceed()
-            val identity = WifiIdentityHookPolicy.readActiveIdentity(module)
-            if (identity != null && shouldSpoofWifiArgs(chain.args, identity.targetApps)) {
+            if (shouldSpoofWifiArgs(chain.args)) {
                 module.log(Log.INFO, tag, "Cleared Wi-Fi scan results while spoofing.")
                 emptyList<Any>()
             } else {
@@ -291,8 +296,8 @@ class SystemServicesHooks(
 
         hookAll(wifiServiceClass, "getConnectionInfo") { chain ->
             val result = chain.proceed()
-            val identity = WifiIdentityHookPolicy.readActiveIdentity(module)
-            if (identity != null && shouldSpoofWifiArgs(chain.args, identity.targetApps)) {
+            val identity = WifiIdentityHookPolicy.readActiveIdentity()
+            if (identity != null && shouldSpoofWifiArgs(chain.args)) {
                 module.log(Log.INFO, tag, "Replaced Wi-Fi connection info while spoofing.")
                 createFakeWifiInfo(identity)
             } else {
@@ -367,7 +372,7 @@ class SystemServicesHooks(
             try {
                 return Class.forName(name, false, classLoader)
             } catch (_: Throwable) {
-                // Try the next framework class name. AOSP moved these across releases.
+                // Try the next framework class name.
             }
         }
         module.log(Log.WARN, tag, "None of these classes were found: ${names.joinToString()}")
@@ -403,16 +408,6 @@ class SystemServicesHooks(
         }.onFailure {
             module.log(Log.ERROR, tag, "Failed delivering spoofed provider location: ${it.message}")
         }
-    }
-
-    // Name-based attribution for pull/query style calls: only spoof while playing and when a target
-    // package can be recovered from the call arguments (caller identity, work source, request, etc.).
-    private fun shouldSpoofArgs(args: List<Any?>?): Boolean {
-        if (PreferencesUtil.getIsPlaying() != true) return false
-        return args?.asSequence()
-            ?.flatMap { collectPackageNames(it).asSequence() }
-            ?.distinct()
-            ?.any { shouldSpoofPackage(it) } == true
     }
 
     private fun collectPackageNames(value: Any?): Set<String> {
@@ -593,5 +588,4 @@ class SystemServicesHooks(
             else -> null
         }
     }
-
 }

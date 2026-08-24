@@ -4,23 +4,12 @@ import android.net.wifi.ScanResult
 import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
 import android.os.Build
+import android.os.Process
+import android.os.UserHandle
 import android.util.Log
+import com.noobexon.xposedfakelocation.xposed.utils.PreferencesUtil
 import io.github.libxposed.api.XposedInterface
 
-/**
- * App-side Wi-Fi identity hooks.
- *
- * [SystemServicesHooks] hooks `WifiServiceImpl` inside `system_server`, which requires
- * the Xposed framework to deliver `onSystemServerStarting`. On Magisk-rooted devices
- * where the framework only loads modules into app processes (not `system_server`),
- * those hooks never install. This class provides an equivalent fallback that hooks the
- * client-side `WifiManager` in each scoped app process, so Wi-Fi identity spoofing works
- * regardless of whether `system_server` injection is available.
- *
- * On KernelSU + Zygisk Next (where `system_server` injection works) both hook paths are
- * installed; the app-side hook simply returns the spoofed value before the Binder reply
- * reaches the caller, so there is no conflict.
- */
 class AppWifiHooks(
     private val module: XposedInterface,
     private val classLoader: ClassLoader,
@@ -38,23 +27,22 @@ class AppWifiHooks(
         module.log(Log.INFO, tag, "Instantiated app-side Wi-Fi hooks successfully")
     }
 
-    /**
-     * Hooks `WifiManager.getConnectionInfo()` to return a fake [WifiInfo] when spoofing
-     * is enabled and a Wi-Fi identity has been configured.
-     */
     private fun hookConnectionInfo() {
         runCatching {
             val wifiManagerClass = Class.forName("android.net.wifi.WifiManager", false, classLoader)
             val method = wifiManagerClass.getDeclaredMethod("getConnectionInfo")
             module.hook(method).intercept { chain ->
                 val result = chain.proceed()
-                val identity = WifiIdentityHookPolicy.readActiveIdentity(module)
-                if (identity?.targets(packageName) == true) {
-                    module.log(Log.INFO, tag, "Replaced Wi-Fi connection info (app-side) while spoofing.")
-                    createFakeWifiInfo(identity)
-                } else {
-                    result
+                val userId = UserHandle.getUserId(Process.myUid())
+                if (PreferencesUtil.getIsPlaying() == true && 
+                    PreferencesUtil.isPackageTargeted(packageName, userId)) {
+                    val identity = WifiIdentityHookPolicy.readActiveIdentity()
+                    if (identity != null) {
+                        module.log(Log.INFO, tag, "Replaced Wi-Fi connection info (app-side) while spoofing.")
+                        return@intercept createFakeWifiInfo(identity)
+                    }
                 }
+                result
             }
             module.log(Log.INFO, tag, "Hooked WifiManager#getConnectionInfo.")
         }.onFailure {
@@ -62,18 +50,15 @@ class AppWifiHooks(
         }
     }
 
-    /**
-     * Hooks `WifiManager.getScanResults()` to return an empty list while spoofing is
-     * enabled, mirroring the [SystemServicesHooks] behaviour of clearing scan results
-     * so the real SSID/BSSID of nearby APs is not leaked.
-     */
     private fun hookScanResults() {
         runCatching {
             val wifiManagerClass = Class.forName("android.net.wifi.WifiManager", false, classLoader)
             val method = wifiManagerClass.getDeclaredMethod("getScanResults")
             module.hook(method).intercept { chain ->
                 val result = chain.proceed()
-                if (WifiIdentityHookPolicy.readActiveIdentity(module)?.targets(packageName) == true) {
+                val userId = UserHandle.getUserId(Process.myUid())
+                if (PreferencesUtil.getIsPlaying() == true &&
+                    PreferencesUtil.isPackageTargeted(packageName, userId)) {
                     module.log(Log.INFO, tag, "Cleared Wi-Fi scan results (app-side) while spoofing.")
                     emptyList<ScanResult>()
                 } else {
@@ -86,11 +71,6 @@ class AppWifiHooks(
         }
     }
 
-    /**
-     * Builds a fake [WifiInfo] from the configured SSID/BSSID/RSSI preferences. Reuses
-     * the same construction logic as [SystemServicesHooks.createFakeWifiInfo] so the
-     * spoofed values are identical on both hook paths.
-     */
     @Suppress("DEPRECATION")
     private fun createFakeWifiInfo(identity: WifiIdentity): WifiInfo {
         val builder = WifiInfo.Builder()

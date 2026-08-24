@@ -1,5 +1,7 @@
 package com.noobexon.xposedfakelocation.xposed.hooks
 
+import android.os.Binder
+import android.os.UserHandle
 import android.telephony.CellInfo
 import android.telephony.NeighboringCellInfo
 import android.util.Log
@@ -40,10 +42,6 @@ class PhoneServicesHooks(
     private fun hookCellInfo(phoneInterfaceManagerClass: Class<*>) {
         hookAll(phoneInterfaceManagerClass, "getAllCellInfo") { chain ->
             if (shouldSpoofArgs(chain.args)) {
-                // Return empty cell info on purpose so apps that rely on tower checks can fall back
-                // to GPS-derived location when spoofing is active.
-                // TODO: This may conflict with other telephony signals (for example, network type
-                // still reporting MOBILE). If users report issues, synthesize coherent fake data.
                 module.log(Log.INFO, tag, "Cleared all cell info while spoofing.")
                 emptyList<CellInfo>()
             } else {
@@ -53,9 +51,6 @@ class PhoneServicesHooks(
 
         hookAll(phoneInterfaceManagerClass, "getNeighboringCellInfo") { chain ->
             if (shouldSpoofArgs(chain.args)) {
-                // Same reasoning as getAllCellInfo: keep neighboring towers empty to encourage
-                // GPS fallback in apps that combine cell and GNSS signals.
-                // TODO: If consistency checks fail in some apps, provide coherent fake neighbors.
                 module.log(Log.INFO, tag, "Cleared neighboring cell info while spoofing.")
                 emptyList<NeighboringCellInfo>()
             } else {
@@ -107,20 +102,13 @@ class PhoneServicesHooks(
         return null
     }
 
-    // Name-based attribution: only spoof while playing and when a target package can be read off
-    // the call arguments. Telephony calls carry the caller package as a plain String argument.
     private fun shouldSpoofArgs(args: List<Any?>?): Boolean {
         if (PreferencesUtil.getIsPlaying() != true) return false
+        val uid = Binder.getCallingUid()
+        val userId = UserHandle.getUserId(uid)
         return args?.asSequence()
             ?.mapNotNull(::extractPackageName)
-            ?.any { shouldSpoofPackage(it) } == true
-    }
-
-    // Name-based scope attribution for the system-level hooks: a package is spoofed only when it is
-    // one of the manager-selected target apps (mirrored into the remote `target_apps` preference).
-    private fun shouldSpoofPackage(packageName: String?): Boolean {
-        if (packageName.isNullOrBlank()) return false
-        return PreferencesUtil.getTargetApps().contains(packageName)
+            ?.any { PreferencesUtil.isPackageTargeted(it, userId) } == true
     }
 
     private fun extractPackageName(value: Any?): String? {
