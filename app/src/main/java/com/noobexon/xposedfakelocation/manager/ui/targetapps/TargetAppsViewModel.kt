@@ -272,8 +272,8 @@ private suspend fun fetchInstalledApps(): List<TargetAppItem> = withContext(Disp
     // 获取所有用户
     val users = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
         try {
-            @Suppress("UNCHECKED_CAST")
             val method = UserManager::class.java.getMethod("getUsers")
+            @Suppress("UNCHECKED_CAST")
             (method.invoke(userManager) as? List<UserHandle>) ?: emptyList()
         } catch (e: Exception) {
             emptyList()
@@ -284,7 +284,15 @@ private suspend fun fetchInstalledApps(): List<TargetAppItem> = withContext(Disp
 
     val result = mutableListOf<TargetAppItem>()
     for (user in users) {
-        val userId = user.id
+        // 通过反射获取 UserHandle 的 id 字段
+        val userId = try {
+            val field = UserHandle::class.java.getDeclaredField("id")
+            field.isAccessible = true
+            field.getInt(user)
+        } catch (e: Exception) {
+            // 如果反射失败，使用默认用户 0
+            0
+        }
         val apps = getInstalledApplicationsForUser(userId)
         for (info in apps) {
             val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
