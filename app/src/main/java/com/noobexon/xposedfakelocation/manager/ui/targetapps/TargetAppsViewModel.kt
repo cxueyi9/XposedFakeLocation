@@ -270,12 +270,12 @@ class TargetAppsViewModel(application: Application) : AndroidViewModel(applicati
 
 private suspend fun fetchInstalledApps(): List<TargetAppItem> = withContext(Dispatchers.IO) {
     // 获取所有用户
-    val users = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-        @Suppress("DEPRECATION")
-        userManager.users ?: emptyList()
-    } else {
-        emptyList()
-    }
+val users = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+    // 使用 getUserHandles() 或 getUsers()
+    userManager.getUsers() ?: emptyList()
+} else {
+    emptyList()
+}
 
     val result = mutableListOf<TargetAppItem>()
     for (user in users) {
