@@ -82,16 +82,6 @@ import com.noobexon.xposedfakelocation.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/**
- * Entry-point composable for the target-apps screen.
- *
- * Collects [TargetAppsViewModel.uiState] and [TargetAppsViewModel.events] with lifecycle
- * awareness, translates one-shot events into snackbar messages, and delegates all layout to the
- * stateless [TargetAppsContent].
- *
- * @param navController Used to navigate back when the user presses the back arrow.
- * @param viewModel Injected automatically by [viewModel]; can be overridden in tests.
- */
 @Composable
 fun TargetAppsScreen(
     navController: NavController,
@@ -135,24 +125,6 @@ fun TargetAppsScreen(
     )
 }
 
-/**
- * Stateless layout composable for the target-apps screen.
- *
- * Renders a [TopAppBar] with an inline search field, a filter dropdown, a summary line showing the
- * selected-app count, and a [LazyColumn] of [TargetAppRow]s. Supports swipe-to-refresh via
- * [PullToRefreshContainer] and shows appropriate empty-state messages when no apps match the
- * active search query or filter settings.
- *
- * @param uiState Current screen state produced by [TargetAppsViewModel].
- * @param snackbarHostState Controls snackbar messages driven by [TargetAppsScreen].
- * @param onNavigateUp Called when the user presses the back arrow while search is inactive.
- * @param onSearchQueryChange Called on every keystroke in the inline search field.
- * @param onToggle Called when the user taps a row or its checkbox to toggle scope membership.
- * @param onRelaunch Called when the user taps the relaunch icon on a selected app.
- * @param onRefresh Called when the user completes a pull-to-refresh gesture.
- * @param onSetShowUserApps Called when the user toggles the "User apps" filter checkbox.
- * @param onSetShowSystemApps Called when the user toggles the "System apps" filter checkbox.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TargetAppsContent(
@@ -160,8 +132,8 @@ private fun TargetAppsContent(
     snackbarHostState: SnackbarHostState,
     onNavigateUp: () -> Unit,
     onSearchQueryChange: (String) -> Unit,
-    onToggle: (String) -> Unit,
-    onRelaunch: (String) -> Unit,
+    onToggle: (TargetAppItem) -> Unit,
+    onRelaunch: (TargetAppItem) -> Unit,
     onRefresh: () -> Unit,
     onSetShowUserApps: (Boolean) -> Unit,
     onSetShowSystemApps: (Boolean) -> Unit,
@@ -189,12 +161,7 @@ private fun TargetAppsContent(
     }
 
     Scaffold(
-        snackbarHost = {
-            SnackbarHost(
-                hostState = snackbarHostState,
-                modifier = Modifier.imePadding()
-            )
-        },
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState, modifier = Modifier.imePadding()) },
         topBar = {
             TopAppBar(
                 title = {
@@ -268,35 +235,35 @@ private fun TargetAppsContent(
                         IconButton(onClick = { searchActive = true }) {
                             Icon(Icons.Default.Search, contentDescription = stringResource(R.string.cd_search_apps))
                         }
-                    }
-                    Box {
-                        IconButton(onClick = { filterExpanded = true }) {
-                            Icon(Icons.Default.FilterList, contentDescription = stringResource(R.string.cd_filter_apps))
-                        }
-                        DropdownMenu(
-                            expanded = filterExpanded,
-                            onDismissRequest = { filterExpanded = false }
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.target_apps_filter_user)) },
-                                onClick = { onSetShowUserApps(!uiState.showUserApps) },
-                                leadingIcon = {
-                                    Checkbox(
-                                        checked = uiState.showUserApps,
-                                        onCheckedChange = null
-                                    )
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.target_apps_filter_system)) },
-                                onClick = { onSetShowSystemApps(!uiState.showSystemApps) },
-                                leadingIcon = {
-                                    Checkbox(
-                                        checked = uiState.showSystemApps,
-                                        onCheckedChange = null
-                                    )
-                                }
-                            )
+                        Box {
+                            IconButton(onClick = { filterExpanded = true }) {
+                                Icon(Icons.Default.FilterList, contentDescription = stringResource(R.string.cd_filter_apps))
+                            }
+                            DropdownMenu(
+                                expanded = filterExpanded,
+                                onDismissRequest = { filterExpanded = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.target_apps_filter_user)) },
+                                    onClick = { onSetShowUserApps(!uiState.showUserApps) },
+                                    leadingIcon = {
+                                        Checkbox(
+                                            checked = uiState.showUserApps,
+                                            onCheckedChange = null
+                                        )
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.target_apps_filter_system)) },
+                                    onClick = { onSetShowSystemApps(!uiState.showSystemApps) },
+                                    leadingIcon = {
+                                        Checkbox(
+                                            checked = uiState.showSystemApps,
+                                            onCheckedChange = null
+                                        )
+                                    }
+                                )
+                            }
                         }
                     }
                 }
@@ -318,7 +285,6 @@ private fun TargetAppsContent(
                     }
                 }
         ) {
-            // TODO: Improve list animation to be smoother
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -327,7 +293,7 @@ private fun TargetAppsContent(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Text(
-                    text = stringResource(R.string.target_apps_selected_count, uiState.selectedPackages.size),
+                    text = stringResource(R.string.target_apps_selected_count, uiState.selectedIdentifiers.size),
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.primary
                 )
@@ -387,16 +353,15 @@ private fun TargetAppsContent(
                                 .nestedScroll(pullRefreshState.nestedScrollConnection)
                         ) {
                             LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-                                items(uiState.filteredApps, key = { it.packageName }) { app ->
+                                items(uiState.filteredApps, key = { "${it.packageName}|${it.userId}" }) { app ->
                                     TargetAppRow(
                                         app = app,
-                                        onToggle = { onToggle(app.packageName) },
-                                        onRelaunch = { onRelaunch(app.packageName) }
+                                        onToggle = { onToggle(app) },
+                                        onRelaunch = { onRelaunch(app) }
                                     )
                                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                                 }
                             }
-                            // TODO: Improve refresh animation
                             PullToRefreshContainer(
                                 state = pullRefreshState,
                                 modifier = Modifier.align(Alignment.TopCenter)
@@ -409,17 +374,6 @@ private fun TargetAppsContent(
     }
 }
 
-/**
- * A single row in the target-apps list.
- *
- * Displays the app icon, name, and package name. When [TargetAppItem.isSelected] is `true`, also
- * shows a relaunch button (or a spinner while [TargetAppItem.isRelaunching] is `true`). The
- * checkbox is replaced by a spinner while [TargetAppItem.isPending] is `true`.
- *
- * @param app Data for the app to render.
- * @param onToggle Called when the user taps the row or its checkbox.
- * @param onRelaunch Called when the user taps the relaunch icon.
- */
 @Composable
 private fun TargetAppRow(
     app: TargetAppItem,
@@ -452,7 +406,7 @@ private fun TargetAppRow(
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = app.packageName,
+                    text = "${app.packageName} [${app.userId}]",  // 显示用户ID
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -492,15 +446,6 @@ private fun TargetAppRow(
     }
 }
 
-/**
- * Loads and displays the launcher icon for [packageName] asynchronously on [Dispatchers.IO].
- *
- * While the bitmap is loading, renders a circular placeholder containing the first letter of
- * [label]. Falls back to the placeholder permanently if the icon cannot be loaded.
- *
- * @param packageName Package whose icon is fetched via [android.content.pm.PackageManager.getApplicationIcon].
- * @param label App display name; used as the fallback initial and as the image content description.
- */
 @Composable
 private fun AppIcon(
     packageName: String,
