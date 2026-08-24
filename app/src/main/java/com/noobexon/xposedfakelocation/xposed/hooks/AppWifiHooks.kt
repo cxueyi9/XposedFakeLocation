@@ -33,7 +33,7 @@ class AppWifiHooks(
             val method = wifiManagerClass.getDeclaredMethod("getConnectionInfo")
             module.hook(method).intercept { chain ->
                 val result = chain.proceed()
-                val userId = android.os.UserHandle.getUserId(android.os.Process.myUid())
+                val userId = android.os.Process.myUid() / 100000
                 if (PreferencesUtil.getIsPlaying() == true && 
                     PreferencesUtil.isPackageTargeted(packageName, userId)) {
                     val identity = WifiIdentityHookPolicy.readActiveIdentity()
@@ -56,7 +56,7 @@ class AppWifiHooks(
             val method = wifiManagerClass.getDeclaredMethod("getScanResults")
             module.hook(method).intercept { chain ->
                 val result = chain.proceed()
-                val userId = android.os.UserHandle.getUserId(android.os.Process.myUid())
+                val userId = android.os.Process.myUid() / 100000
                 if (PreferencesUtil.getIsPlaying() == true &&
                     PreferencesUtil.isPackageTargeted(packageName, userId)) {
                     module.log(Log.INFO, tag, "Cleared Wi-Fi scan results (app-side) while spoofing.")
