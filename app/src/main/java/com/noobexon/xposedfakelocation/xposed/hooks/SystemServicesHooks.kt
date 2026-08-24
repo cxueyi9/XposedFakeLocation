@@ -18,8 +18,6 @@ import io.github.libxposed.api.XposedInterface.Chain
 import io.github.libxposed.api.XposedInterface.Hooker
 import java.lang.reflect.Field
 import java.lang.reflect.Method
-import android.os.UserHandle
-import android.os.Binder
 
 class SystemServicesHooks(
     private val module: XposedInterface,
@@ -105,10 +103,12 @@ class SystemServicesHooks(
         val originalRegistrations = ArrayMap<Any?, Any?>()
         val passthroughRegistrations = ArrayMap<Any?, Any?>()
 
+        val uid = Binder.getCallingUid()
+        val userId = UserHandle.getUserId(uid)
+
         registrations.forEach { (key, value) ->
             originalRegistrations[key] = value
             val packageNames = collectPackageNames(value)
-            val userId = Binder.getCallingUid().let { UserHandle.getUserId(it) }
             val spoofedPackage = packageNames.firstOrNull { PreferencesUtil.isPackageTargeted(it, userId) }
             if (spoofedPackage != null) {
                 locationsField.set(locationResult, arrayListOf(fakeLocation))
@@ -195,7 +195,8 @@ class SystemServicesHooks(
 
     private fun interceptCallLocationChanged(chain: Chain): Any? {
         if (PreferencesUtil.getIsPlaying() != true) return chain.proceed()
-       val userId = Binder.getCallingUid().let { UserHandle.getUserId(it) }
+        val uid = Binder.getCallingUid()
+        val userId = UserHandle.getUserId(uid)
         if (collectPackageNames(chain.thisObject).none { PreferencesUtil.isPackageTargeted(it, userId) }) return chain.proceed()
 
         val args = chain.args
@@ -211,12 +212,12 @@ class SystemServicesHooks(
 
     private fun shouldSpoofArgs(args: List<Any?>?): Boolean {
         if (PreferencesUtil.getIsPlaying() != true) return false
-val uid = Binder.getCallingUid()
-val userId = UserHandle.getUserId(uid)
+        val uid = Binder.getCallingUid()
+        val userId = UserHandle.getUserId(uid)
         return args?.asSequence()
-    ?.flatMap { arg: Any? -> collectPackageNames(arg).asSequence() }
-    ?.distinct()
-    ?.any { pkg: String -> PreferencesUtil.isPackageTargeted(pkg, userId) }
+            ?.flatMap { collectPackageNames(it).asSequence() }
+            ?.distinct()
+            ?.any { PreferencesUtil.isPackageTargeted(it, userId) } == true
     }
 
     private fun shouldSpoofWifiArgs(args: List<Any?>?): Boolean {
