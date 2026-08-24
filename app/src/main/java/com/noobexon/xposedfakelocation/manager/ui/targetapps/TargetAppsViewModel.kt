@@ -323,24 +323,34 @@ fun toggleApp(item: TargetAppItem) {
     }
 
 private suspend fun fetchInstalledApps(): List<TargetAppItem> = withContext(Dispatchers.IO) {
-    // 直接获取当前用户（用户0）的所有已安装应用
+    // 获取所有已安装的应用（包括系统应用）
     val apps = packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
     val result = mutableListOf<TargetAppItem>()
+
+    // 打印应用总数，便于调试
+    Log.d("TargetAppsVM", "Total installed apps: ${apps.size}")
+
     for (info in apps) {
-        // 检查是否有启动器 Activity
-        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-        val resolveInfo = packageManager.resolveActivity(intent.setPackage(info.packageName), 0)
-        if (resolveInfo != null && info.packageName != MANAGER_APP_PACKAGE_NAME) {
-            val label = info.loadLabel(packageManager).toString()
-            val isSystem = (info.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-            result.add(TargetAppItem(
-                label = label,
-                packageName = info.packageName,
-                userId = 0,  // 固定为主用户
-                isSystemApp = isSystem
-            ))
-        }
+        // 过滤掉自身
+        if (info.packageName == MANAGER_APP_PACKAGE_NAME) continue
+
+        val label = info.loadLabel(packageManager).toString()
+        val isSystem = (info.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+
+        // 对于所有应用（包括没有启动器的），都添加到列表
+        // 用户可以根据需要搜索
+        result.add(TargetAppItem(
+            label = label,
+            packageName = info.packageName,
+            userId = 0,  // 所有应用都在当前用户下
+            isSystemApp = isSystem
+        ))
+
+        // 打印每个应用的包名，以便调试
+        Log.d("TargetAppsVM", "Added app: $label ($info.packageName)")
     }
+
+    // 按标签排序
     result.distinctBy { it.packageName }
         .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.label })
 }
