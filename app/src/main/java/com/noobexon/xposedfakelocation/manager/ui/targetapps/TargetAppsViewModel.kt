@@ -27,16 +27,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.lang.reflect.Method
 
-/**
- * 应用标识：包名 + 用户ID
- */
-data class AppIdentifier(val packageName: String, val userId: Int) {
-    override fun toString(): String = "$packageName|$userId"
-}
-
-/**
- * 显示用的应用条目
- */
 @Immutable
 data class TargetAppItem(
     val label: String,
@@ -46,12 +36,14 @@ data class TargetAppItem(
     val isSelected: Boolean = false,
     val isPending: Boolean = false,
     val isRelaunching: Boolean = false
-)
+) {
+    fun identifier(): String = "$packageName|$userId"
+}
 
 @Immutable
 data class TargetAppsUiState(
     val apps: List<TargetAppItem> = emptyList(),
-    val selectedIdentifiers: Set<String> = emptySet(), // 存储 "packageName|userId"
+    val selectedIdentifiers: Set<String> = emptySet(),
     val pendingIdentifiers: Set<String> = emptySet(),
     val relaunchingIdentifiers: Set<String> = emptySet(),
     val filteredApps: List<TargetAppItem> = emptyList(),
@@ -76,8 +68,6 @@ private fun List<TargetAppItem>.sortedBySelection(selected: Set<String>): List<T
         compareByDescending<TargetAppItem> { selected.contains(it.identifier()) }
             .thenBy(String.CASE_INSENSITIVE_ORDER) { it.label }
     )
-
-private fun TargetAppItem.identifier() = "$packageName|$userId"
 
 class TargetAppsViewModel(application: Application) : AndroidViewModel(application) {
     private val preferencesRepository = PreferencesRepository(application)
@@ -278,16 +268,13 @@ class TargetAppsViewModel(application: Application) : AndroidViewModel(applicati
         )
     }
 
-    /**
-     * 跨用户获取所有已安装的启动器应用
-     */
     private suspend fun fetchInstalledApps(): List<TargetAppItem> = withContext(Dispatchers.IO) {
-        // 获取所有用户（API 24+ 支持）
+        // 获取所有用户
         val users = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            // UserManager.getUsers() 返回 List<UserHandle>，可能为null
-            userManager.getUsers() ?: emptyList()
+            @Suppress("DEPRECATION")
+            val result = userManager.users
+            result ?: emptyList()
         } else {
-            // 对于旧版本，只能获取当前用户（但我们的 minSdk=29 不会执行到这里）
             emptyList()
         }
 
@@ -296,7 +283,6 @@ class TargetAppsViewModel(application: Application) : AndroidViewModel(applicati
             val userId = user.id
             val apps = getInstalledApplicationsForUser(userId)
             for (info in apps) {
-                // 检查是否有启动器Intent
                 val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
                     .setPackage(info.packageName)
                 val resolveInfo = packageManager.resolveActivity(intent, 0)
@@ -312,14 +298,10 @@ class TargetAppsViewModel(application: Application) : AndroidViewModel(applicati
                 }
             }
         }
-        // 去重（同一包名不同用户视为不同条目）
         result.distinctBy { "${it.packageName}|${it.userId}" }
             .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.label })
     }
 
-    /**
-     * 反射调用 PackageManager.getInstalledApplicationsAsUser
-     */
     private fun getInstalledApplicationsForUser(userId: Int): List<ApplicationInfo> {
         return try {
             val method: Method = PackageManager::class.java.getDeclaredMethod(
@@ -327,9 +309,9 @@ class TargetAppsViewModel(application: Application) : AndroidViewModel(applicati
                 Int::class.javaPrimitiveType,
                 Int::class.javaPrimitiveType
             )
+            @Suppress("UNCHECKED_CAST")
             method.invoke(packageManager, PackageManager.GET_META_DATA, userId) as List<ApplicationInfo>
         } catch (e: Exception) {
-            // 降级到当前用户
             packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
         }
     }
@@ -356,9 +338,6 @@ class TargetAppsViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    /**
-     * 保存选中的应用标识符（包名|用户ID）到Preferences
-     */
     suspend fun saveSelectedIdentifiers(identifiers: Set<String>) {
         preferencesRepository.saveTargetApps(identifiers)
     }
