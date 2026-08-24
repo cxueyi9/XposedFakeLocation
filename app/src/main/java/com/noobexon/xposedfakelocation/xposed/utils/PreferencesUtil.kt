@@ -49,41 +49,20 @@ import com.noobexon.xposedfakelocation.xposed.utils.PreferencesUtil.init
 
 /**
  * Hook-side accessor for the LSPosed remote [SharedPreferences] written by the manager app.
- *
- * All spoofing settings (coordinates, toggles, target app list) live in the remote preference
- * group and are read here on every hook intercept, ensuring hooks always reflect the latest
- * manager state without requiring a process restart.
- *
- * Must be initialised via [init] before any getter is called. Typically called from
- * [com.noobexon.xposedfakelocation.xposed.ModuleEntry.onPackageLoaded].
  */
 object PreferencesUtil {
     private const val TAG = "[PreferencesUtil]"
     private val gson = Gson()
 
-    /**
-     * Optional logger wired in by [com.noobexon.xposedfakelocation.xposed.ModuleEntry].
-     * Routes log calls through the libxposed logging channel.
-     */
     @Volatile var logger: ((Int, String, String) -> Unit)? = null
     private fun log(msg: String, priority: Int = Log.INFO) = logger?.invoke(priority, TAG, msg)
 
     @Volatile private var preferences: SharedPreferences? = null
 
-    /**
-     * IMPORTANT: must be held as a strong reference. [SharedPreferences] registers listeners
-     * weakly, so a listener with no other reference will be GC'd and silently stop firing.
-     */
     private val changeListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         log("Remote pref changed: $key")
     }
 
-    /**
-     * Initialises this util with the LSPosed remote [SharedPreferences] for the module's
-     * settings group. Registers a change listener to log preference updates.
-     *
-     * Safe to call multiple times — subsequent calls replace the previous preferences instance.
-     */
     fun init(prefs: SharedPreferences) {
         preferences = prefs
         prefs.registerOnSharedPreferenceChangeListener(changeListener)
@@ -124,12 +103,9 @@ object PreferencesUtil {
             ?: DEFAULT_WIFI_RSSI
 
     /**
-     * Returns the set of package names selected by the user as spoofing targets.
-     *
-     * Stored as a JSON array in remote preferences and parsed on each call.
-     * Returns an empty set if preferences are uninitialised, the key is absent, or parsing fails.
+     * 返回目标应用列表，每个条目格式为 "包名|用户ID"
      */
-    fun getTargetApps(): Set<String> {
+    fun getTargetAppsWithUser(): Set<String> {
         val prefs = preferences ?: return emptySet()
         val json = prefs.getString(KEY_TARGET_APPS, null) ?: return emptySet()
         return runCatching {
@@ -140,14 +116,21 @@ object PreferencesUtil {
     }
 
     /**
-     * Generic preference reader. Dispatches to the correct [SharedPreferences] getter based
-     * on the reified type [T]:
-     * - [Double] — stored as raw long bits via [java.lang.Double.doubleToRawLongBits] to work
-     *   around the lack of a `putDouble` API on [SharedPreferences].
-     * - [Float] / [Boolean] — stored natively.
-     * - Everything else — stored as a JSON string and deserialised with [gson].
-     *
-     * Returns `null` if preferences are not yet initialised or the key is absent.
+     * 判断给定的包名和用户ID是否在目标列表中
+     */
+    fun isPackageTargeted(packageName: String, userId: Int): Boolean {
+        return getTargetAppsWithUser().contains("$packageName|$userId")
+    }
+
+    // ========== 保留原有 getTargetApps 方法以兼容，但已弃用 ==========
+    @Deprecated("Use getTargetAppsWithUser() or isPackageTargeted() instead")
+    fun getTargetApps(): Set<String> {
+        // 仅仅返回包名，丢失用户ID，不建议使用
+        return getTargetAppsWithUser().map { it.substringBefore('|') }.toSet()
+    }
+
+    /**
+     * Generic preference reader.
      */
     private inline fun <reified T> getPreference(key: String): T? {
         val preferences = preferences ?: return null
@@ -182,5 +165,4 @@ object PreferencesUtil {
             }
         }
     }
-
 }
