@@ -115,6 +115,8 @@ object PreferencesUtil {
             .getOrDefault(emptySet())
     }
 
+fun getEnableWifiIdentity(): Boolean = preferences?.getBoolean(KEY_ENABLE_WIFI_IDENTITY, DEFAULT_ENABLE_WIFI_IDENTITY) ?: false
+
     /**
      * 判断给定的包名和用户ID是否在目标列表中
      */
