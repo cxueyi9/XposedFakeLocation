@@ -9,6 +9,8 @@ import android.os.UserHandle
 import android.util.Log
 import com.noobexon.xposedfakelocation.xposed.utils.PreferencesUtil
 import io.github.libxposed.api.XposedInterface
+import android.os.UserHandle
+import android.os.Process
 
 class AppWifiHooks(
     private val module: XposedInterface,
@@ -33,7 +35,7 @@ class AppWifiHooks(
             val method = wifiManagerClass.getDeclaredMethod("getConnectionInfo")
             module.hook(method).intercept { chain ->
                 val result = chain.proceed()
-                val userId = UserHandle.getUserId(Process.myUid())
+                val userId = android.os.UserHandle.getUserId(android.os.Process.myUid())
                 if (PreferencesUtil.getIsPlaying() == true && 
                     PreferencesUtil.isPackageTargeted(packageName, userId)) {
                     val identity = WifiIdentityHookPolicy.readActiveIdentity()
@@ -56,7 +58,7 @@ class AppWifiHooks(
             val method = wifiManagerClass.getDeclaredMethod("getScanResults")
             module.hook(method).intercept { chain ->
                 val result = chain.proceed()
-                val userId = UserHandle.getUserId(Process.myUid())
+                val userId = android.os.UserHandle.getUserId(android.os.Process.myUid())
                 if (PreferencesUtil.getIsPlaying() == true &&
                     PreferencesUtil.isPackageTargeted(packageName, userId)) {
                     module.log(Log.INFO, tag, "Cleared Wi-Fi scan results (app-side) while spoofing.")
