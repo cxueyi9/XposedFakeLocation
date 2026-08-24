@@ -270,29 +270,43 @@ class TargetAppsViewModel(application: Application) : AndroidViewModel(applicati
     }
 
 private suspend fun fetchInstalledApps(): List<TargetAppItem> = withContext(Dispatchers.IO) {
-    // 获取所有用户
-    val users = try {
+    val users = mutableListOf<UserHandle>()
+
+    try {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            // 尝试 getUsers()
             val method = UserManager::class.java.getMethod("getUsers")
             @Suppress("UNCHECKED_CAST")
-            (method.invoke(userManager) as? List<UserHandle>) ?: emptyList()
-        } else {
-            emptyList()
+            val result = method.invoke(userManager) as? List<UserHandle>
+            if (result != null) {
+                users.addAll(result)
+            }
         }
     } catch (e: Exception) {
-        Log.e("TargetAppsVM", "Failed to get users: ${e.message}")
-        // 回退到当前用户
-        listOf(android.os.Process.myUserHandle())
+        Log.e("TargetAppsVM", "getUsers failed: ${e.message}")
     }
 
-    val finalUsers = if (users.isEmpty()) {
-        listOf(android.os.Process.myUserHandle())
-    } else {
-        users
+    // 如果 getUsers 没有返回任何用户，尝试 getProfiles() 获取工作资料等
+    if (users.isEmpty() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+        try {
+            val method = UserManager::class.java.getMethod("getProfiles")
+            @Suppress("UNCHECKED_CAST")
+            val profiles = method.invoke(userManager) as? List<UserHandle>
+            if (profiles != null) {
+                users.addAll(profiles)
+            }
+        } catch (e: Exception) {
+            Log.e("TargetAppsVM", "getProfiles failed: ${e.message}")
+        }
+    }
+
+    // 兜底：至少包含当前用户
+    if (users.isEmpty()) {
+        users.add(android.os.Process.myUserHandle())
     }
 
     val result = mutableListOf<TargetAppItem>()
-    for (user in finalUsers) {
+    for (user in users) {
         val userId = try {
             val field = UserHandle::class.java.getDeclaredField("id")
             field.isAccessible = true
@@ -302,11 +316,15 @@ private suspend fun fetchInstalledApps(): List<TargetAppItem> = withContext(Disp
             0
         }
 
+        // 打印日志，方便调试
+        Log.d("TargetAppsVM", "Processing user: $userId")
+
         val apps = getInstalledApplicationsForUser(userId)
         for (info in apps) {
-            // 使用 getLaunchIntentForPackage 检查是否有启动器 Activity
-            val launchIntent = packageManager.getLaunchIntentForPackage(info.packageName)
-            if (launchIntent != null && info.packageName != MANAGER_APP_PACKAGE_NAME) {
+            // 改为使用 resolveActivity 检查启动器，更可靠
+            val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+            val resolveInfo = packageManager.resolveActivity(intent.setPackage(info.packageName), 0)
+            if (resolveInfo != null && info.packageName != MANAGER_APP_PACKAGE_NAME) {
                 val label = info.loadLabel(packageManager).toString()
                 val isSystem = (info.flags and ApplicationInfo.FLAG_SYSTEM) != 0
                 result.add(TargetAppItem(
@@ -318,6 +336,7 @@ private suspend fun fetchInstalledApps(): List<TargetAppItem> = withContext(Disp
             }
         }
     }
+
     result.distinctBy { "${it.packageName}|${it.userId}" }
         .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.label })
 }
